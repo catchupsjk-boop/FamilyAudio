@@ -8,6 +8,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Arrange files
+        run: |
+          mkdir -p app/src/main/java/com/jk/familyaudio app/src/main/res/layout app/src/main/assets
+          if [ -f AndroidManifest.xml ]; then mv -f AndroidManifest.xml app/src/main/AndroidManifest.xml; fi
+          if [ -f AudioForegroundService.kt ]; then mv -f AudioForegroundService.kt app/src/main/java/com/jk/familyaudio/AudioForegroundService.kt; fi
+          if [ -f MainActivity.kt ]; then mv -f MainActivity.kt app/src/main/java/com/jk/familyaudio/MainActivity.kt; fi
+          if [ -f activity_main.xml ]; then mv -f activity_main.xml app/src/main/res/layout/activity_main.xml; fi
+          if [ -f index.html ]; then mv -f index.html app/src/main/assets/index.html; fi
+          if grep -q namespace build.gradle.kts; then mv -f build.gradle.kts app/build.gradle.kts; fi
+          printf '%s\n' 'plugins {' '    id("com.android.application") version "8.5.2" apply false' '    id("org.jetbrains.kotlin.android") version "1.9.24" apply false' '}' > build.gradle.kts
+          find . -path ./.git -prune -o -type f -print | sort
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
