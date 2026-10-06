@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Audio Check-in</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  :root {
+    --green: #6E9A63;
+    --green-light: #E4F0DE;
+    --cream: #FBF7E9;
+    --text: #3B4A33;
+    --red: #C94A3B;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Verdana, sans-serif;
+    background: var(--cream);
+    color: var(--text);
+    margin: 0;
+    padding: 24px 16px;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  p.subtitle { color: #7A8A6F; margin-top: 0; }
+  .card {
+    background: white;
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 6px 18px rgba(110,154,99,0.15);
+    margin-bottom: 18px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 1.05rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 12px;
+    padding: 16px;
+    width: 100%;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  .btn-primary { background: var(--green); color: white; }
+  .btn-stop { background: var(--red); color: white; }
+  .btn-secondary { background: var(--green-light); color: var(--green); }
+  input[type=text] {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #DDD5B8;
+    font-size: 1rem;
+    margin-top: 6px;
+  }
+  .link-box {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .link-box input { flex: 1; background: var(--green-light); font-size: 0.85rem; }
+  .status-pill {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .status-waiting { background: #F3EEDA; color: #A0A88F; }
+  .status-connected { background: var(--green-light); color: var(--green); }
+  .live-banner {
+    background: var(--red);
+    color: white;
+    padding: 16px;
+    border-radius: 14px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.75; } }
+  .timer { font-size: 0.9rem; opacity: 0.9; margin-top: 4px; }
+  .hidden { display: none !important; }
+  .hint { font-size: 0.85rem; color: #7A8A6F; margin-top: 10px; }
+  .volume-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .volume-row input[type=range] { flex: 1; }
+  .talk-buzz-row { display: flex; gap: 10px; margin-top: 14px; }
+  .talk-buzz-row button { margin-top: 0; }
+  .talk-opt.talking { background: var(--red) !important; color: white !important; }
+  .talk-opt small { display: block; font-weight: 400; opacity: .8; font-size: 12px; }
+  .buzz-pulse { background: #E3A857 !important; }
+  .out-opt { padding: 12px 4px; font-size: 0.9rem; }
+  .out-opt small { display: block; font-weight: 400; opacity: .8; font-size: 11px; }
+  .out-opt.selected { background: var(--green) !important; color: white !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============== LISTENER VIEW ============== -->
+  <div id="listener-view" class="hidden">
+    <h1>🌿 Family Audio Check-in</h1>
+    <p class="subtitle">Listen in when your family member chooses to share.</p>
+
+    <div class="card" id="listener-setup">
+      <label for="display-name">Your name (shown to them)</label>
+      <input type="text" id="display-name" placeholder="e.g. Shubham">
+      <label for="listen-password" style="display:block;margin-top:12px">Password (set in the speaker's app)</label>
+      <input type="password" id="listen-password" placeholder="Enter password" autocomplete="off">
+      <p class="hint" id="login-msg" style="color:var(--red);font-weight:600"></p>
+      <button class="btn-primary" id="start-listening-btn">Start Listening Mode</button>
+      <p class="hint">The password is asked every time you open this page and is never saved. Only one device can listen at a time.</p>
+    </div>
+
+    <div class="card hidden" id="listener-active">
+      <p>Status: <span class="status-pill status-waiting" id="status-pill">Waiting for them to connect</span></p>
+      <div id="connected-info" class="hidden">
+        <p class="timer" id="connect-timer"></p>
+        <div class="volume-row">
+          🔈 <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="1"> 🔊
+        </div>
+      </div>
+      <p class="hint" id="sec-msg" style="color:var(--red);font-weight:600"></p>
+      <audio id="remote-audio" autoplay></audio>
+      <div style="margin-top:16px"><strong>🎧 Where do you want to hear?</strong></div>
+      <div class="talk-buzz-row" style="margin-top:8px">
+        <button class="btn-secondary out-opt" id="out-speaker">🔊 Loud<small>bottom speaker</small></button>
+        <button class="btn-secondary out-opt" id="out-phone">📞 Earpiece<small>top small speaker</small></button>
+        <button class="btn-secondary out-opt" id="out-headset">🎧 Earphones<small>wired / Bluetooth</small></button>
+      </div>
+      <p class="hint" id="out-note"></p>
+      <div style="margin-top:16px"><strong>Talk back to them (plays on THEIR phone):</strong></div>
+      <div class="talk-buzz-row" style="margin-top:8px">
+        <button class="btn-secondary talk-opt" id="talk-phone-btn">📞 Talk on Phone<small>quiet · front earpiece</small></button>
+        <button class="btn-secondary talk-opt" id="talk-speaker-btn">🔊 Talk on Speaker<small>loud · big speaker</small></button>
+      </div>
+      <div class="talk-buzz-row">
+        <button class="btn-secondary" id="buzz-btn">🔔 Buzz</button>
+      </div>
+      <p class="hint" id="talk-buzz-hint">Talking and buzzing need your family member's page to be open on their end.</p>
+      <button class="btn-stop" id="stop-listening-btn">Stop Listening Mode</button>
+    </div>
+
+    <div class="card">
+      <strong>Share this link with your family member:</strong>
+      <div class="link-box">
+        <input type="text" id="share-link" readonly>
+        <button class="btn-secondary" style="width:auto; padding:10px 16px;" id="copy-link-btn">Copy</button>
+      </div>
+      <p class="hint">They just open this link on their phone and tap "Start Sharing" whenever they want you to hear them. It only works while this page is open and "Listening Mode" is on.</p>
+    </div>
+  </div>
+
+  <!-- ============== SPEAKER VIEW ============== -->
+  <div id="speaker-view" class="hidden">
+    <h1>🌿 Share Your Audio</h1>
+    <p class="subtitle" id="speaker-subtitle">Tap below when you want <span id="listener-name">your family member</span> to hear you.</p>
+
+    <div class="card hidden" id="incoming-talk-banner">
+      <div class="live-banner" style="background: var(--green);">
+        🔊 <span id="talker-name">Your family member</span> is talking to you
+      </div>
+    </div>
+    <audio id="incoming-talk-audio" autoplay></audio>
+
+    <div class="card hidden" id="buzz-banner">
+      <div class="live-banner buzz-pulse">
+        🔔 <span id="buzzer-name">Your family member</span> is trying to reach you!
+      </div>
+    </div>
+
+    <div class="card" id="speaker-idle">
+      <button class="btn-primary" id="start-sharing-btn">🎤 Start Sharing My Audio</button>
+      <p class="hint">Your phone will ask permission to use the microphone — tap Allow. You'll see a clear red banner the whole time you're sharing, and you can stop anytime.</p>
+      <label style="display:flex; align-items:flex-start; gap:10px; margin-top:18px; font-size:0.9rem; cursor:pointer;">
+        <input type="checkbox" id="auto-share-checkbox" style="width:auto; margin-top:3px;">
+        <span>Automatically share every time I open this page (until I turn this off below). Only turn this on if you've talked this over and you're comfortable with it.</span>
+      </label>
+    </div>
+
+    <div class="card hidden" id="auto-share-status">
+      <p>✅ Automatic sharing is turned <strong>ON</strong> for this page.</p>
+      <button class="btn-secondary" id="turn-off-auto-btn">Turn Off Automatic Sharing</button>
+    </div>
+
+    <div class="card hidden" id="speaker-live">
+      <div class="live-banner">
+        🔴 LIVE — Your audio is being shared
+        <div class="timer" id="share-timer">00:00</div>
+      </div>
+      <p class="hint" id="link-status">Connecting to listener…</p>
+      <p class="hint" id="sec-status">🔒 Password protection is ON. Only one listener at a time.</p>
+      <button class="btn-stop" id="stop-sharing-btn">Stop Sharing</button>
+      <button class="btn-secondary hidden" id="turn-off-auto-btn-live">Turn Off Automatic Sharing</button>
+    </div>
+
+    <div class="card hidden" id="speaker-error">
+      <p id="error-text"></p>
+      <button class="btn-secondary" id="retry-btn">Try Again</button>
+    </div>
+  </div>
+
+</div>
+
+<p id="ver-label" style="text-align:center;font-size:12px;opacity:.6;margin:12px"></p>
+<details style="margin:20px 16px;font-size:12px;opacity:.8">
+  <summary>Technical details</summary>
+  <pre id="dbg" style="white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto"></pre>
+</details>
+
+<script>
+const APP_VERSION = 'v8.1';
+const _dbgLines = [];
+document.addEventListener('DOMContentLoaded', () => { const v = document.getElementById('ver-label'); if (v) v.textContent = 'Version ' + APP_VERSION; });
+function dlog(msg) {
+  const t = new Date().toLocaleTimeString();
+  _dbgLines.push(t + '  ' + msg);
+  if (_dbgLines.length > 60) _dbgLines.shift();
+  const el = document.getElementById('dbg');
+  if (el) { el.textContent = _dbgLines.join('\n'); el.scrollTop = el.scrollHeight; }
+}
+// ---- Connection servers (STUN finds a route, TURN relays when no direct route exists) ----
+// Listener ID: long random value. It is NOT enough to listen: the password is also required.
+const DEFAULT_LISTENER_ID = 'fam-cz22oyxlvmzamouvztjpwl';
+const TURN_USER = 'openrelayproject';
+const TURN_PASS = 'openrelayproject';
+const PEER_OPTIONS = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      { urls: 'turn:openrelay.metered.ca:80', username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:openrelay.metered.ca:443', username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: TURN_USER, credential: TURN_PASS }
+    ]
+  }
+};
+
+const params = new URLSearchParams(location.search);
+const role = params.get('role');
+
+async function sha256Hex(s) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+function randHex(n) {
+  const a = new Uint8Array(n); crypto.getRandomValues(a);
+  return Array.from(a).map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+function buildShareLink(listenerId, listenerName) {
+  const url = new URL(location.href);
+  url.search = '';
+  url.searchParams.set('role', 'share');
+  url.searchParams.set('to', listenerId);
+  if (listenerName) url.searchParams.set('name', listenerName);
+  return url.toString();
+}
+
+function formatTimer(seconds) {
+  const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const s = String(seconds % 60).padStart(2, '0');
+  return m + ':' + s;
+}
+
+// ---------------------------------------------------------------
+// LISTENER ROLE
+// ---------------------------------------------------------------
+function initListener() {
+  document.getElementById('listener-view').classList.remove('hidden');
+
+  let listenerId = DEFAULT_LISTENER_ID;
+  const idParam = params.get('id');
+  if (idParam && /^[A-Za-z0-9_-]{4,40}$/.test(idParam)) {
+    listenerId = idParam;
+    try { localStorage.setItem('familyAudioCustomId', idParam); } catch (e) {}
+  } else {
+    try {
+      const custom = localStorage.getItem('familyAudioCustomId');
+      if (custom && /^[A-Za-z0-9_-]{4,40}$/.test(custom)) listenerId = custom;
+    } catch (e) {}
+  }
+  // Password is NEVER stored: it lives only in memory while this page is open.
+  try { localStorage.removeItem('familyAudioListenerAutoStart'); } catch (e) {}
+  let deviceId = '';
+  try { deviceId = localStorage.getItem('familyAudioDeviceId') || ''; } catch (e) {}
+  if (!deviceId) { deviceId = randHex(8); try { localStorage.setItem('familyAudioDeviceId', deviceId); } catch (e) {} }
+  let savedName = '';
+  try { savedName = localStorage.getItem('familyAudioListenerName') || ''; } catch (e) {}
+  document.getElementById('display-name').value = savedName;
+  document.getElementById('share-link').value = buildShareLink(listenerId, savedName);
+
+  let peer = null;
+  let activeCall = null;
+  let timerInterval = null;
+  let connectSeconds = 0;
+  let speakerConn = null, connecting = false, pulling = false, pollTimer = null;
+  let wantListening = false, retryTimer = null, helloAt = 0, repliedAt = 0, disconnectedAt = 0;
+  let listenerPassword = '', authed = false, sessionToken = null, connOpenedAt = 0;
+  const loginMsg = document.getElementById('login-msg');
+  const secMsg = document.getElementById('sec-msg');
+
+  function showNotice(text) {
+    secMsg.textContent = text;
+    clearTimeout(secMsg._t);
+    secMsg._t = setTimeout(() => { secMsg.textContent = ''; }, 15000);
+  }
+
+  function stopListening(msg) {
+    wantListening = false;
+    clearTimeout(retryTimer);
+    stopTalking();
+    clearInterval(pollTimer);
+    if (activeCall) { try { activeCall.close(); } catch (e) {} activeCall = null; }
+    if (speakerConn) { try { speakerConn.close(); } catch (e) {} speakerConn = null; }
+    if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+    clearInterval(timerInterval);
+    authed = false; sessionToken = null; listenerPassword = '';
+    document.getElementById('connected-info').classList.add('hidden');
+    document.getElementById('listener-active').classList.add('hidden');
+    document.getElementById('listener-setup').classList.remove('hidden');
+    document.getElementById('listen-password').value = '';
+    loginMsg.textContent = msg || '';
+  }
+
+  function restartListening(why, delay) {
+    if (!wantListening) return;
+    dlog('reconnecting: ' + why);
+    const pill = document.getElementById('status-pill');
+    pill.textContent = 'Reconnecting…';
+    pill.className = 'status-pill status-waiting';
+    clearTimeout(retryTimer);
+    clearInterval(pollTimer);
+    authed = false; sessionToken = null;
+    if (activeCall) { try { activeCall.close(); } catch (e) {} activeCall = null; }
+    try { if (peer) peer.destroy(); } catch (e) {}
+    retryTimer = setTimeout(startListening, delay || 4000);
+  }
+
+  // ---- Where THIS phone plays the speaker's voice: loud / earpiece / earphones ----
+  let outputMode = 'speaker';
+  try { const o = localStorage.getItem('familyAudioListenOutput'); if (['speaker', 'phone', 'headset'].includes(o)) outputMode = o; } catch (e) {}
+  const outBtns = { speaker: document.getElementById('out-speaker'), phone: document.getElementById('out-phone'), headset: document.getElementById('out-headset') };
+  function outNote(t) { document.getElementById('out-note').textContent = t; }
+
+  async function applyOutput(mode) {
+    outputMode = mode;
+    try { localStorage.setItem('familyAudioListenOutput', mode); } catch (e) {}
+    Object.keys(outBtns).forEach((k) => outBtns[k].classList.toggle('selected', k === mode));
+    const a = document.getElementById('remote-audio');
+    const vol = parseFloat(document.getElementById('volume-slider').value) || 1;
+    // 1) Inside the Family Audio Android app: real routing (most reliable)
+    if (window.AndroidAudio && window.AndroidAudio.setOutput) {
+      if (mode === 'headset' && window.AndroidAudio.hasHeadset && !window.AndroidAudio.hasHeadset()) {
+        outNote('No earphones found — plug them in or connect Bluetooth, then tap Earphones again.');
+      } else {
+        outNote(mode === 'phone' ? 'Playing on the top earpiece.' : mode === 'headset' ? 'Playing on your earphones.' : 'Playing on the loud bottom speaker.');
+      }
+      try { window.AndroidAudio.setOutput(mode); } catch (e) {}
+      a.volume = vol;
+      return;
+    }
+    // 2) Plain browser: pick an output device if the browser offers one
+    if (a.setSinkId && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      try {
+        const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
+        let pick = null;
+        if (mode === 'phone') pick = devs.find((d) => /earpiece|handset|receiver/i.test(d.label));
+        else if (mode === 'headset') pick = devs.find((d) => /head(set|phone)|bluetooth|earphone|usb|wired/i.test(d.label));
+        else pick = devs.find((d) => /speaker/i.test(d.label)) || devs.find((d) => d.deviceId === 'default');
+        if (pick) { await a.setSinkId(pick.deviceId); a.volume = vol; outNote('Playing on: ' + (pick.label || mode)); return; }
+      } catch (e) {}
+    }
+    // 3) Fallback
+    a.volume = mode === 'phone' ? Math.min(vol, 0.35) : vol;
+    outNote(mode === 'phone'
+      ? "This browser can't choose the top earpiece, so it plays quietly on the normal speaker. Use the Family Audio app on this phone for the real earpiece."
+      : mode === 'headset'
+        ? 'Plug in or connect your earphones — Android sends the sound to them automatically.'
+        : 'Playing on the normal phone speaker.');
+  }
+  Object.keys(outBtns).forEach((k) => outBtns[k].addEventListener('click', () => applyOutput(k)));
+  applyOutput(outputMode);
+
+  function startListening() {
+    wantListening = true;
+    clearTimeout(retryTimer);
+    clearInterval(pollTimer);
+    activeCall = null; pulling = false; speakerConn = null; connecting = false;
+    authed = false; sessionToken = null;
+    const name = document.getElementById('display-name').value.trim();
+    try { localStorage.setItem('familyAudioListenerName', name); } catch (e) {}
+    document.getElementById('share-link').value = buildShareLink(listenerId, name);
+
+    const audioEl = document.getElementById('remote-audio');
+    audioEl.muted = true;
+    audioEl.play().catch(() => {});
+    audioEl.muted = false;
+
+    document.getElementById('listener-setup').classList.add('hidden');
+    document.getElementById('listener-active').classList.remove('hidden');
+    const statusPill = document.getElementById('status-pill');
+    statusPill.textContent = 'Connecting…';
+    statusPill.className = 'status-pill status-waiting';
+
+    peer = new Peer(listenerId, PEER_OPTIONS);
+    dlog('LISTENER ' + APP_VERSION + ' id ends …' + listenerId.slice(-5));
+    peer.on('open', () => dlog('server connected'));
+    peer.on('disconnected', () => dlog('server disconnected'));
+
+    const connectTimeout = setTimeout(() => {
+      if (statusPill.textContent === 'Connecting…') {
+        statusPill.textContent = 'Taking longer than usual — retrying…';
+        try { peer.reconnect(); } catch (e) { console.error(e); }
+      }
+    }, 6000);
+    const openWatchdog = setTimeout(() => {
+      if (peer && !peer.open) restartListening('server not reachable', 1000);
+    }, 20000);
+
+    peer.on('open', () => {
+      clearTimeout(connectTimeout);
+      clearTimeout(openWatchdog);
+      disconnectedAt = 0;
+      statusPill.textContent = 'Waiting for them to connect';
+      statusPill.className = 'status-pill status-waiting';
+      startPolling();
+    });
+
+    peer.on('disconnected', () => {
+      if (!disconnectedAt) disconnectedAt = Date.now();
+      statusPill.textContent = 'Connection lost — reconnecting…';
+      try { peer.reconnect(); } catch (e) { console.error(e); }
+    });
+
+    // Security: nobody may call the listener directly any more. Audio is only ever PULLED
+    // by this page after a successful password login.
+    peer.on('call', (call) => { try { call.close(); } catch (e) {} });
+
+    function attachStream(remoteStream) {
+      audioEl.srcObject = remoteStream;
+      applyOutput(outputMode);
+      document.getElementById('status-pill').textContent = 'Connected — listening now';
+      document.getElementById('status-pill').className = 'status-pill status-connected';
+      audioEl.play().catch(() => {
+        document.getElementById('status-pill').textContent = 'Connected — tap the screen to hear audio';
+        document.addEventListener('click', () => {
+          audioEl.play().catch(() => {});
+          document.getElementById('status-pill').textContent = 'Connected — listening now';
+        }, { once: true });
+      });
+      document.getElementById('connected-info').classList.remove('hidden');
+      connectSeconds = 0;
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        connectSeconds++;
+        document.getElementById('connect-timer').textContent = 'Connected for ' + formatTimer(connectSeconds);
+      }, 1000);
+    }
+
+    function silentStream() {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      window.__silentCtx = window.__silentCtx || new AC();
+      return window.__silentCtx.createMediaStreamDestination().stream;
+    }
+
+    function pullFromSpeaker() {
+      if (pulling || activeCall || !peer || !peer.open || !authed || !sessionToken) return;
+      pulling = true;
+      dlog('pulling audio from speaker');
+      let gotStream = false;
+      const c = peer.call(speakerIdFor(), silentStream(), { metadata: { type: 'pull', token: sessionToken } });
+      if (!c) { pulling = false; return; }
+      activeCall = c;
+      statusPill.textContent = 'Connecting audio…';
+      const giveUp = setTimeout(() => { if (!gotStream) { try { c.close(); } catch (e) {} } }, 12000);
+      const ice = setInterval(() => {
+        const pc = c.peerConnection;
+        if (pc && pc.iceConnectionState !== c._lastIce) { c._lastIce = pc.iceConnectionState; dlog('audio network: ' + c._lastIce); }
+        if (pc && (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed')) {
+          try { c.close(); } catch (e) {}
+        }
+      }, 1000);
+      c.on('stream', (s) => { dlog('audio stream received'); gotStream = true; clearTimeout(giveUp); attachStream(s); });
+      c.on('close', () => {
+        dlog('audio call closed');
+        clearTimeout(giveUp); clearInterval(ice);
+        pulling = false;
+        if (activeCall === c) activeCall = null;
+        resetToWaiting();
+      });
+      c.on('error', () => { try { c.close(); } catch (e) {} });
+    }
+
+    function handleDenied(d) {
+      let msg = 'Access refused.';
+      if (d.reason === 'badpw') msg = '❌ Wrong password. ' + (d.left != null ? d.left + ' tries left.' : '');
+      else if (d.reason === 'locked') msg = '🔒 Too many wrong tries. Try again in about ' + (d.mins || 5) + ' minute(s).';
+      else if (d.reason === 'busy') msg = '⛔ This link is already being used on another device. The owner has been notified.';
+      else if (d.reason === 'nopw') msg = '⚠️ The speaker has not set a password yet. Set it in the speaker app.';
+      dlog('denied: ' + d.reason);
+      stopListening(msg);
+    }
+
+    async function onSpeakerData(d, c) {
+      if (!d) return;
+      if (d.type === 'challenge') {
+        if (typeof d.nonce !== 'string' || !listenerPassword) return;
+        const proof = await sha256Hex(d.nonce + ':' + listenerPassword);
+        const nm = document.getElementById('display-name').value.trim();
+        try { c.send({ type: 'auth', proof: proof, deviceId: deviceId, from: nm }); } catch (e) {}
+        return;
+      }
+      if (d.type === 'authed') {
+        authed = true; sessionToken = d.token; repliedAt = Date.now(); helloAt = 0;
+        dlog('logged in');
+        return;
+      }
+      if (d.type === 'denied') { handleDenied(d); return; }
+      if (d.type === 'notice') { showNotice(String(d.text || '')); return; }
+      if (d.type !== 'status' || !authed) return;
+      repliedAt = Date.now();
+      dlog('speaker says sharing=' + d.sharing);
+      if (d.sharing) {
+        if (!activeCall) pullFromSpeaker();
+      } else if (!activeCall) {
+        statusPill.textContent = 'Family member is online — waiting for them to start sharing';
+        statusPill.className = 'status-pill status-waiting';
+      }
+    }
+
+    function ensureSpeakerConn() {
+      if (!peer || !peer.open) return;
+      const name = document.getElementById('display-name').value.trim();
+      if (speakerConn && speakerConn.open) {
+        if (!authed) {
+          if (Date.now() - connOpenedAt > 8000) {
+            dlog('login not completed — retrying');
+            try { speakerConn.close(); } catch (e) {}
+            speakerConn = null;
+          } else return;
+        } else if (helloAt > repliedAt && Date.now() - helloAt > 4000) {
+          dlog('speaker link not answering — rebuilding');
+          try { speakerConn.close(); } catch (e) {}
+          speakerConn = null; authed = false; sessionToken = null;
+        } else {
+          helloAt = Date.now();
+          try { speakerConn.send({ type: 'hello', from: name }); } catch (e) {}
+          return;
+        }
+      }
+      if (connecting) return;
+      connecting = true;
+      dlog('looking for speaker …' + speakerIdFor().slice(-12));
+      const c = peer.connect(speakerIdFor(), { reliable: true });
+      const t = setTimeout(() => { connecting = false; try { c.close(); } catch (e) {} }, 8000);
+      c.on('open', () => {
+        dlog('speaker link open — logging in');
+        clearTimeout(t); connecting = false; speakerConn = c;
+        authed = false; sessionToken = null; connOpenedAt = Date.now(); helloAt = 0; repliedAt = 0;
+      });
+      c.on('data', (d) => { onSpeakerData(d, c); });
+      c.on('close', () => {
+        clearTimeout(t); connecting = false;
+        if (speakerConn === c) { speakerConn = null; authed = false; sessionToken = null; }
+        if (!activeCall && wantListening) {
+          statusPill.textContent = 'Waiting for them to connect';
+          statusPill.className = 'status-pill status-waiting';
+        }
+      });
+      c.on('error', () => { connecting = false; });
+    }
+
+    function startPolling() {
+      clearInterval(pollTimer);
+      ensureSpeakerConn();
+      pollTimer = setInterval(() => {
+        if (peer && peer.disconnected && !peer.destroyed) {
+          try { peer.reconnect(); } catch (e) {}
+          if (disconnectedAt && Date.now() - disconnectedAt > 15000) restartListening('server lost', 1000);
+          return;
+        }
+        ensureSpeakerConn();
+      }, 5000);
+    }
+
+    peer.on('error', (err) => {
+      dlog('error: ' + err.type);
+      if (err.type === 'peer-unavailable') { connecting = false; return; }
+      console.error(err);
+      if (['unavailable-id', 'network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
+        restartListening(err.type, err.type === 'unavailable-id' ? 5000 : 3000);
+      }
+    });
+
+    function resetToWaiting() {
+      clearInterval(timerInterval);
+      if (!wantListening) return;
+      document.getElementById('status-pill').textContent = 'Waiting for them to connect';
+      document.getElementById('status-pill').className = 'status-pill status-waiting';
+      document.getElementById('connected-info').classList.add('hidden');
+      audioEl.srcObject = null;
+    }
+  }
+
+  document.getElementById('start-listening-btn').addEventListener('click', () => {
+    const pw = document.getElementById('listen-password').value;
+    if (!pw) { loginMsg.textContent = 'Please enter the password.'; return; }
+    loginMsg.textContent = '';
+    listenerPassword = pw;
+    document.getElementById('listen-password').value = '';
+    startListening();
+  });
+  document.getElementById('listen-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('start-listening-btn').click();
+  });
+
+  document.getElementById('stop-listening-btn').addEventListener('click', () => stopListening(''));
+
+  // --- Talk back ---
+  let talkStream = null;
+  let talkCall = null;
+
+  function speakerIdFor() { return listenerId + '-speaker'; }
+
+  const talkPhoneBtn = document.getElementById('talk-phone-btn');
+  const talkSpeakerBtn = document.getElementById('talk-speaker-btn');
+  let talkMode = null;
+
+  function startTalking(mode) {
+    if (!peer || !authed || !sessionToken) { showNotice('Not connected yet — wait for "Connected".'); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        talkStream = stream;
+        talkMode = mode;
+        talkCall = peer.call(speakerIdFor(), stream, { metadata: { type: 'talk', output: mode, token: sessionToken } });
+        dlog('talking on ' + mode);
+        const active = mode === 'phone' ? talkPhoneBtn : talkSpeakerBtn;
+        active.classList.add('talking');
+        active.firstChild.textContent = '🛑 Stop Talking';
+        if (talkCall) {
+          talkCall.on('close', stopTalking);
+          talkCall.on('error', stopTalking);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        alert('Could not access your microphone to talk. Please allow microphone access and try again.');
+      });
+  }
+
+  function stopTalking() {
+    if (talkCall) { try { talkCall.close(); } catch (e) {} talkCall = null; }
+    if (talkStream) { talkStream.getTracks().forEach((t) => t.stop()); talkStream = null; }
+    talkMode = null;
+    talkPhoneBtn.classList.remove('talking');
+    talkSpeakerBtn.classList.remove('talking');
+    talkPhoneBtn.firstChild.textContent = '📞 Talk on Phone';
+    talkSpeakerBtn.firstChild.textContent = '🔊 Talk on Speaker';
+  }
+
+  function onTalkButton(mode) {
+    if (talkStream && talkMode === mode) { stopTalking(); return; }
+    if (talkStream) stopTalking();
+    startTalking(mode);
+  }
+  talkPhoneBtn.addEventListener('click', () => onTalkButton('phone'));
+  talkSpeakerBtn.addEventListener('click', () => onTalkButton('speaker'));
+
+  // --- Buzz: only over the logged-in link ---
+  document.getElementById('buzz-btn').addEventListener('click', () => {
+    const name = document.getElementById('display-name').value.trim();
+    if (speakerConn && speakerConn.open && authed) {
+      try { speakerConn.send({ type: 'buzz', from: name }); dlog('buzz sent'); } catch (e) {}
+    } else {
+      showNotice('Not connected yet — wait for "Connected".');
+    }
+  });
+
+  document.getElementById('volume-slider').addEventListener('input', (e) => {
+    document.getElementById('remote-audio').volume = parseFloat(e.target.value);
+  });
+
+  document.getElementById('copy-link-btn').addEventListener('click', () => {
+    const input = document.getElementById('share-link');
+    input.select();
+    navigator.clipboard.writeText(input.value).then(() => {
+      const btn = document.getElementById('copy-link-btn');
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = original, 1500);
+    }).catch(() => {});
+  });
+}
+
+// ---------------------------------------------------------------
+// SPEAKER ROLE  (the speaker is the gatekeeper: it checks the password and the single-device rule)
+// ---------------------------------------------------------------
+function initSpeaker() {
+  document.getElementById('speaker-view').classList.remove('hidden');
+  const toId = params.get('to');
+  const listenerName = params.get('name');
+  if (listenerName) {
+    document.getElementById('listener-name').textContent = listenerName;
+  }
+
+  if (!toId) {
+    document.getElementById('speaker-idle').classList.add('hidden');
+    document.getElementById('speaker-error').classList.remove('hidden');
+    document.getElementById('error-text').textContent = 'This link is missing information. Please ask for a fresh link.';
+    document.getElementById('retry-btn').classList.add('hidden');
+    return;
+  }
+
+  let localStream = null;
+  let timerInterval = null;
+  let seconds = 0;
+
+  const pullCalls = new Set();
+  let activeTalk = null;
+  const speakerId = toId + '-speaker';
+  const peer = new Peer(speakerId, PEER_OPTIONS);
+  dlog('SPEAKER ' + APP_VERSION + ' listener id ends …' + toId.slice(-5));
+  peer.on('open', () => dlog('server connected'));
+  peer.on('disconnected', () => dlog('server disconnected'));
+  peer.on('error', (e) => dlog('error: ' + e.type));
+  const talkAudioEl = document.getElementById('incoming-talk-audio');
+
+  // ---------- security state ----------
+  const MAX_FAILS = 5, LOCK_MS = 5 * 60 * 1000, SEAT_TIMEOUT = 15000;
+  let seat = null;               // { deviceId, conn, token, last }  = the ONE allowed listener
+  let fails = 0, lockedUntil = 0, lastUnauthNote = 0;
+
+  function getPw() {
+    try {
+      if (window.AndroidAudio && window.AndroidAudio.getPassword) return String(window.AndroidAudio.getPassword() || '');
+    } catch (e) {}
+    return '';
+  }
+  function notifyOwner(title, text) {
+    dlog('ALERT: ' + text);
+    const el = document.getElementById('sec-status');
+    if (el) el.textContent = '⚠️ ' + text;
+    try { if (window.AndroidAudio && window.AndroidAudio.alertOwner) window.AndroidAudio.alertOwner(title, text); } catch (e) {}
+  }
+  function seatAlive() {
+    return !!(seat && seat.conn && seat.conn.open && Date.now() - seat.last < SEAT_TIMEOUT);
+  }
+  function freeSeat(closeConn) {
+    if (!seat) return;
+    const old = seat; seat = null;
+    pullCalls.forEach((c) => { try { c.close(); } catch (e) {} });
+    pullCalls.clear();
+    if (activeTalk) { try { activeTalk.close(); } catch (e) {} activeTalk = null; }
+    if (closeConn) { try { old.conn.close(); } catch (e) {} }
+  }
+  function sendTo(conn, obj) { try { if (conn && conn.open) conn.send(obj); } catch (e) {} }
+  function closeSoon(conn) { setTimeout(() => { try { conn.close(); } catch (e) {} }, 700); }
+
+  async function handleAuth(conn, data, nonce) {
+    const now = Date.now();
+    if (now < lockedUntil) {
+      sendTo(conn, { type: 'denied', reason: 'locked', mins: Math.ceil((lockedUntil - now) / 60000) });
+      closeSoon(conn); return false;
+    }
+    const pw = getPw();
+    if (!pw) { sendTo(conn, { type: 'denied', reason: 'nopw' }); closeSoon(conn); return false; }
+    const expect = await sha256Hex(nonce + ':' + pw);
+    if (typeof data.proof !== 'string' || data.proof !== expect) {
+      fails++;
+      if (fails >= MAX_FAILS) {
+        lockedUntil = Date.now() + LOCK_MS; fails = 0;
+        notifyOwner('🚨 Family Audio locked', MAX_FAILS + ' wrong password attempts. Listening is locked for 5 minutes.');
+        sendTo(conn, { type: 'denied', reason: 'locked', mins: 5 });
+      } else {
+        notifyOwner('⚠️ Wrong password', 'Someone tried a wrong password (' + fails + '/' + MAX_FAILS + ').');
+        sendTo(conn, { type: 'denied', reason: 'badpw', left: MAX_FAILS - fails });
+      }
+      closeSoon(conn); return false;
+    }
+    fails = 0;
+    const dev = String(data.deviceId || '').slice(0, 40);
+    const who = String(data.from || 'Someone').slice(0, 40);
+    if (seatAlive() && seat.deviceId !== dev) {
+      notifyOwner('⚠️ Second device blocked', who + ' tried to open your link on a second device. It was refused.');
+      sendTo(seat.conn, { type: 'notice', text: '⚠️ Another device just tried to open this link (blocked).' });
+      sendTo(conn, { type: 'denied', reason: 'busy' });
+      closeSoon(conn); return false;
+    }
+    if (seat) freeSeat(true);   // same device reconnecting, or an expired seat
+    seat = { deviceId: dev, conn: conn, token: randHex(16), last: Date.now() };
+    sendTo(conn, { type: 'authed', token: seat.token });
+    sendTo(conn, { type: 'status', sharing: !!localStream });
+    const el = document.getElementById('sec-status');
+    if (el) el.textContent = '🔒 Listener signed in at ' + new Date().toLocaleTimeString();
+    dlog('listener signed in');
+    return true;
+  }
+
+  peer.on('connection', (conn) => {
+    dlog('someone linked — asking for password');
+    const nonce = randHex(16);
+    let authed = false, attempted = false;
+    conn.on('open', () => {
+      sendTo(conn, { type: 'challenge', nonce: nonce });
+      setTimeout(() => { if (!authed) { try { conn.close(); } catch (e) {} } }, 10000);
+    });
+    conn.on('close', () => { if (seat && seat.conn === conn) freeSeat(false); });
+    conn.on('data', async (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'auth') {
+        if (attempted) return;
+        attempted = true;
+        authed = await handleAuth(conn, data, nonce);
+        return;
+      }
+      if (!authed || !seat || seat.conn !== conn) return;
+      seat.last = Date.now();
+      if (data.type === 'buzz') triggerBuzz(data.from);
+      else if (data.type === 'hello') sendTo(conn, { type: 'status', sharing: !!localStream });
+    });
+  });
+
+  peer.on('call', (incomingCall) => {
+    const md = incomingCall.metadata || {};
+    // Only the single signed-in listener (holding the secret session token) may call us.
+    if (!seatAlive() || typeof md.token !== 'string' || md.token !== seat.token) {
+      dlog('call refused (not signed in)');
+      try { incomingCall.close(); } catch (e) {}
+      if (Date.now() - lastUnauthNote > 60000) {
+        lastUnauthNote = Date.now();
+        notifyOwner('⚠️ Blocked connection', 'Someone tried to connect to your audio without logging in. It was blocked.');
+      }
+      return;
+    }
+    if (md.type === 'pull') {
+      dlog('listener wants audio');
+      if (!localStream) { try { incomingCall.close(); } catch (e) {} return; }
+      incomingCall.answer(localStream);
+      pullCalls.add(incomingCall);
+      watchPull(incomingCall);
+      return;
+    }
+    if (md.type !== 'talk') { try { incomingCall.close(); } catch (e) {} return; }
+    const outputMode = (md.output === 'phone') ? 'phone' : 'speaker';
+    incomingCall.answer(); // receive-only
+    activeTalk = incomingCall;
+    incomingCall.on('stream', (remoteStream) => {
+      routeTalkAudio(outputMode);
+      talkAudioEl.srcObject = remoteStream;
+      talkAudioEl.play().catch(() => {});
+      document.getElementById('incoming-talk-banner').classList.remove('hidden');
+    });
+    incomingCall.on('close', () => {
+      if (activeTalk === incomingCall) activeTalk = null;
+      document.getElementById('incoming-talk-banner').classList.add('hidden');
+      talkAudioEl.srcObject = null;
+      routeTalkAudio('reset');
+    });
+  });
+
+  function routeTalkAudio(mode) {
+    dlog('talk audio output: ' + mode);
+    if (window.AndroidAudio && window.AndroidAudio.setOutput) {
+      try { window.AndroidAudio.setOutput(mode); } catch (e) {}
+      talkAudioEl.volume = 1;
+    } else {
+      talkAudioEl.volume = (mode === 'phone') ? 0.35 : 1;
+    }
+  }
+
+  peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+
+  function watchPull(c) {
+    const linkStatus = document.getElementById('link-status');
+    const iv = setInterval(() => {
+      const pc = c.peerConnection;
+      if (!pc) return;
+      const st = pc.iceConnectionState;
+      if (st === 'connected' || st === 'completed') linkStatus.textContent = '✅ Listener connected';
+      else if (st === 'failed' || st === 'closed') {
+        clearInterval(iv); pullCalls.delete(c);
+        try { c.close(); } catch (e) {}
+        linkStatus.textContent = 'Reconnecting…';
+      } else linkStatus.textContent = 'Connecting… (' + st + ')';
+    }, 1000);
+    c.on('close', () => {
+      clearInterval(iv); pullCalls.delete(c);
+      if (localStream) linkStatus.textContent = 'Waiting for listener…';
+    });
+  }
+
+  peer.on('error', (err) => {
+    console.error('Speaker peer error:', err);
+    if (['unavailable-id', 'network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
+      dlog('reloading in 5s: ' + err.type);
+      setTimeout(() => location.reload(), 5000);
+    }
+    const ls = document.getElementById('link-status');
+    if (ls) ls.textContent = err.type === 'unavailable-id'
+      ? 'Reconnecting… (if this repeats, close any other tab/app using this link)'
+      : (err.type === 'peer-unavailable' ? 'Waiting for listener…' : '❌ ' + (err.type || err));
+  });
+
+  function triggerBuzz(fromName) {
+    if (navigator.vibrate) navigator.vibrate([250, 120, 250, 120, 250]);
+    playBeep();
+    if (fromName) document.getElementById('buzzer-name').textContent = fromName;
+    const banner = document.getElementById('buzz-banner');
+    banner.classList.remove('hidden');
+    clearTimeout(banner._hideTimeout);
+    banner._hideTimeout = setTimeout(() => banner.classList.add('hidden'), 6000);
+  }
+
+  let sharedAudioCtx = null;
+  function playBeep() {
+    try {
+      sharedAudioCtx = sharedAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = sharedAudioCtx;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.25, ctx.currentTime);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.6);
+    } catch (e) {
+      console.error('Beep failed:', e);
+    }
+  }
+  document.addEventListener('touchstart', () => {
+    sharedAudioCtx = sharedAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume();
+  }, { once: true });
+
+  const autoShareKey = 'familyAudioAutoShare_' + toId;
+  const autoShareOn = localStorage.getItem(autoShareKey) === '1';
+
+  function refreshAutoShareUI() {
+    const on = localStorage.getItem(autoShareKey) === '1';
+    document.getElementById('auto-share-checkbox').checked = on;
+    document.getElementById('auto-share-status').classList.toggle('hidden', !on);
+    document.getElementById('turn-off-auto-btn-live').classList.toggle('hidden', !on);
+  }
+
+  function turnOffAutoShare() {
+    localStorage.removeItem(autoShareKey);
+    refreshAutoShareUI();
+  }
+
+  document.getElementById('start-sharing-btn').addEventListener('click', () => {
+    if (document.getElementById('auto-share-checkbox').checked) {
+      localStorage.setItem(autoShareKey, '1');
+    }
+    startSharing();
+  });
+  document.getElementById('stop-sharing-btn').addEventListener('click', () => {
+    try { sessionStorage.removeItem('resumeShare'); } catch (e) {}
+    stopSharing();
+  });
+  document.getElementById('turn-off-auto-btn').addEventListener('click', turnOffAutoShare);
+  document.getElementById('turn-off-auto-btn-live').addEventListener('click', turnOffAutoShare);
+  document.getElementById('retry-btn').addEventListener('click', () => {
+    document.getElementById('speaker-error').classList.add('hidden');
+    document.getElementById('speaker-idle').classList.remove('hidden');
+  });
+
+  refreshAutoShareUI();
+  let resume = false;
+  try { resume = sessionStorage.getItem('resumeShare') === '1'; } catch (e) {}
+  if (autoShareOn || resume) {
+    startSharing();
+  }
+
+  let sharingStarted = false;
+  function startSharing() {
+    if (sharingStarted) return;
+    if (!getPw() && window.AndroidAudio) {
+      showError('Set a password in the Family Audio app first (at least 8 characters).');
+      return;
+    }
+    sharingStarted = true;
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        try { sessionStorage.setItem('resumeShare', '1'); } catch (e) {}
+        localStream = stream;
+        document.getElementById('link-status').textContent = 'Waiting for listener…';
+        if (seatAlive()) sendTo(seat.conn, { type: 'status', sharing: true });
+        document.getElementById('speaker-idle').classList.add('hidden');
+        document.getElementById('speaker-live').classList.remove('hidden');
+        seconds = 0;
+        timerInterval = setInterval(() => {
+          seconds++;
+          document.getElementById('share-timer').textContent = formatTimer(seconds);
+        }, 1000);
+      })
+      .catch((err) => {
+        sharingStarted = false;
+        console.error(err);
+        showError('Microphone permission was not granted. Please allow microphone access in your browser settings and try again.');
+      });
+  }
+
+  function stopSharing() {
+    sharingStarted = false;
+    clearInterval(timerInterval);
+    routeTalkAudio('reset');
+    pullCalls.forEach((c) => { try { c.close(); } catch (e) {} });
+    pullCalls.clear();
+    if (seatAlive()) sendTo(seat.conn, { type: 'status', sharing: false });
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    document.getElementById('speaker-live').classList.add('hidden');
+    document.getElementById('speaker-idle').classList.remove('hidden');
+  }
+
+  function showError(msg) {
+    clearInterval(timerInterval);
+    document.getElementById('speaker-idle').classList.add('hidden');
+    document.getElementById('speaker-live').classList.add('hidden');
+    document.getElementById('speaker-error').classList.remove('hidden');
+    document.getElementById('retry-btn').classList.remove('hidden');
+    document.getElementById('error-text').textContent = msg;
+  }
+
+  window.addEventListener('beforeunload', stopSharing);
+}
+
+// ---------------------------------------------------------------
+// ENTRY POINT
+// ---------------------------------------------------------------
+if (role === 'share') {
+  initSpeaker();
+} else {
+  initListener();
+}
+</script>
+</body>
+</html>
