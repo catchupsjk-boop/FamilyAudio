@@ -5,9 +5,12 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -79,6 +82,7 @@ class MainActivity : ComponentActivity() {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.mediaPlaybackRequiresUserGesture = false
+        webView.addJavascriptInterface(AudioBridge(), "AndroidAudio")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
@@ -97,6 +101,47 @@ class MainActivity : ComponentActivity() {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread { request.grant(request.resources) }
+            }
+        }
+    }
+
+    /** Lets the page choose where incoming "Talk" voice plays. */
+    inner class AudioBridge {
+        @JavascriptInterface
+        fun setOutput(mode: String) { runOnUiThread { routeAudio(mode) } }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun routeAudio(mode: String) {
+        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+        val maxCall = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+        when (mode) {
+            "phone" -> {            // quiet, front earpiece
+                am.mode = AudioManager.MODE_IN_COMMUNICATION
+                if (Build.VERSION.SDK_INT >= 31) {
+                    val dev = am.availableCommunicationDevices
+                        .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+                    if (dev != null) am.setCommunicationDevice(dev) else am.clearCommunicationDevice()
+                } else {
+                    am.isSpeakerphoneOn = false
+                }
+                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, (maxCall * 0.6).toInt().coerceAtLeast(1), 0)
+            }
+            "speaker" -> {          // loud, bottom loudspeaker
+                am.mode = AudioManager.MODE_IN_COMMUNICATION
+                if (Build.VERSION.SDK_INT >= 31) {
+                    val dev = am.availableCommunicationDevices
+                        .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    if (dev != null) am.setCommunicationDevice(dev)
+                } else {
+                    am.isSpeakerphoneOn = true
+                }
+                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxCall, 0)
+            }
+            else -> {               // back to normal
+                if (Build.VERSION.SDK_INT >= 31) am.clearCommunicationDevice()
+                else am.isSpeakerphoneOn = false
+                am.mode = AudioManager.MODE_NORMAL
             }
         }
     }
@@ -147,6 +192,7 @@ class MainActivity : ComponentActivity() {
         startService(Intent(this, AudioForegroundService::class.java)
             .setAction(AudioForegroundService.ACTION_STOP))
         webView.loadUrl("about:blank")
+        routeAudio("reset")
         render(false)
     }
 
